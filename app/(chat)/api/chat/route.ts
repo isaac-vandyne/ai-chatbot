@@ -35,6 +35,9 @@ import type { ChatMessage } from "@/lib/types";
 import { convertToUIMessages, generateUUID } from "@/lib/utils";
 import { generateTitleFromUserMessage } from "../../actions";
 import { type PostRequestBody, postRequestBodySchema } from "./schema";
+import { loadUserContext, classifyQueryComplexity } from "@/lib/context";
+import { createPlanningAgent, createOnboardingAgent, createQuickAgent } from "@/lib/agents";
+import { goalTools, taskTools, nodeTools, dailyPlanTools, userProfileTools } from "@/lib/tools";
 
 export const maxDuration = 60;
 
@@ -135,6 +138,35 @@ export async function POST(request: Request) {
 
     const modelMessages = await convertToModelMessages(uiMessages);
 
+    // Load user context to determine agent and provide context
+    const userContext = await loadUserContext(user.id, supabase);
+    
+    // Determine if this is a new user (onboarding flow)
+    const isNewUser = !userContext.profile.content && userContext.activeGoals.length === 0;
+    
+    // Get the user's message content for agent selection
+    const userMessageContent = message?.role === "user" 
+      ? (typeof message.parts[0] === 'string' 
+          ? message.parts[0] 
+          : message.parts[0]?.type === 'text' ? message.parts[0].text : ''
+        )
+      : '';
+    
+    // Determine query complexity for agent selection
+    const queryComplexity = classifyQueryComplexity(userMessageContent);
+
+    // Prepare North tools (all tools available)
+    const northTools = {
+      ...goalTools(supabase, user.id),
+      ...taskTools(supabase, user.id),
+      ...nodeTools(supabase, user.id),
+      ...dailyPlanTools(supabase, user.id),
+      ...userProfileTools(supabase, user.id),
+    };
+    
+    // List of North tool names for experimental_activeTools
+    const northToolNames = Object.keys(northTools) as Array<keyof typeof northTools>;
+
     const stream = createUIMessageStream({
       originalMessages: isToolApprovalFlow ? uiMessages : undefined,
       execute: async ({ writer: dataStream }) => {
@@ -142,14 +174,17 @@ export async function POST(request: Request) {
           model: getLanguageModel(selectedChatModel),
           system: systemPrompt({ selectedChatModel, requestHints }),
           messages: modelMessages,
-          stopWhen: stepCountIs(5),
+          stopWhen: stepCountIs(10), // Increased for agent workflows
           experimental_activeTools: isReasoningModel
             ? []
             : [
-                "getWeather",
-                "createDocument",
-                "updateDocument",
-                "requestSuggestions",
+                // Original ai-chatbot tools
+                "getWeather" as const,
+                "createDocument" as const,
+                "updateDocument" as const,
+                "requestSuggestions" as const,
+                // All North tools
+                ...northToolNames,
               ],
           providerOptions: isReasoningModel
             ? {
@@ -159,10 +194,13 @@ export async function POST(request: Request) {
               }
             : undefined,
           tools: {
+            // Original ai-chatbot tools
             getWeather,
             createDocument: createDocument({ session: { user }, dataStream }),
             updateDocument: updateDocument({ session: { user }, dataStream }),
             requestSuggestions: requestSuggestions({ session: { user }, dataStream }),
+            // All North tools
+            ...northTools,
           },
           experimental_telemetry: {
             isEnabled: isProductionEnvironment,
