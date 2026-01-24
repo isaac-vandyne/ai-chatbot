@@ -24,8 +24,7 @@ export const chat = pgTable("Chat", {
   createdAt: timestamp("createdAt").notNull(),
   title: text("title").notNull(),
   userId: uuid("userId")
-    .notNull()
-    .references(() => user.id),
+    .notNull(), // References auth.users from Supabase Auth, no FK constraint
   visibility: varchar("visibility", { enum: ["public", "private"] })
     .notNull()
     .default("private"),
@@ -113,8 +112,7 @@ export const document = pgTable(
       .notNull()
       .default("text"),
     userId: uuid("userId")
-      .notNull()
-      .references(() => user.id),
+      .notNull(), // References auth.users from Supabase Auth, no FK constraint
   },
   (table) => {
     return {
@@ -136,8 +134,7 @@ export const suggestion = pgTable(
     description: text("description"),
     isResolved: boolean("isResolved").notNull().default(false),
     userId: uuid("userId")
-      .notNull()
-      .references(() => user.id),
+      .notNull(), // References auth.users from Supabase Auth, no FK constraint
     createdAt: timestamp("createdAt").notNull(),
   },
   (table) => ({

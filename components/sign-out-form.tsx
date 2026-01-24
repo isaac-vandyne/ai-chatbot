@@ -1,16 +1,16 @@
 import Form from "next/form";
-
-import { signOut } from "@/app/(auth)/auth";
+import { createClient } from "@/lib/supabase/server";
+import { redirect } from "next/navigation";
 
 export const SignOutForm = () => {
   return (
     <Form
       action={async () => {
         "use server";
-
-        await signOut({
-          redirectTo: "/",
-        });
+        
+        const supabase = await createClient();
+        await supabase.auth.signOut();
+        redirect("/auth");
       }}
       className="w-full"
     >
